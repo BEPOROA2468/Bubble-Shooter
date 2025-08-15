@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bubble Shooter – Powerups + Combo + Coins</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#111935; --accent:#6cf; --good:#3ddc97; --warn:#ffcc00; --danger:#ff4d6d;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0; background:radial-gradient(1200px 700px at 70% -10%, #1a2555 0%, #0b1020 60%);
+      color:#e8eeff; font:500 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial; display:flex; align-items:center; justify-content:center;}
+    .wrap{width:min(96vw, 560px); display:grid; gap:10px}
+    .hud{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; background:linear-gradient(180deg, #17224b, #0e1533);
+      border:1px solid #223069; border-radius:16px; padding:10px 12px; box-shadow:0 10px 20px rgba(0,0,0,.35) inset, 0 8px 24px rgba(0,0,0,.25);}
+    .stat{display:flex; gap:6px; align-items:center}
+    .badge{padding:.25rem .6rem; border-radius:999px; background:#0f1a3d; border:1px solid #24336b}
+    .btn{border:0; color:#001; background:linear-gradient(180deg, #8fd1ff, #43a7ff); padding:.5rem .8rem; border-radius:999px; font-weight:700; cursor:pointer; box-shadow:0 6px 16px rgba(67,167,255,.35)}
+    .ghost{opacity:.7}
+    .board{background:radial-gradient(800px 500px at 20% -10%, #0f1840 0%, #0b1020 65%); border:1px solid #223069; border-radius:20px; padding:10px; box-shadow:0 15px 30px rgba(0,0,0,.35), inset 0 0 0 3px rgba(255,255,255,.04); position:relative}
+    canvas{display:block; width:100%; height:auto; border-radius:14px;}
+    .gameover{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(5,8,20,.75); border-radius:14px; backdrop-filter: blur(2px); flex-direction:column; gap:10px; text-align:center; padding:20px}
+    .tip{text-align:center; opacity:.78; font-size:.9rem}
+    .ad-slot{height:80px; border-radius:12px; border:1px dashed #3b4a85; display:flex; align-items:center; justify-content:center; color:#89a3ff; font-size:.9rem; background:#0d1533; opacity:.85}
+    .toolbar{display:flex; gap:8px; align-items:center; justify-content:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hud">
+      <div class="stat"><strong>Score</strong> <span id="score" class="badge">0</span></div>
+      <div class="stat"><strong>Coins</strong> <span id="coins" class="badge">0</span></div>
+      <div class="stat"><strong>Combo</strong> <span id="combo" class="badge">x1</span></div>
+      <div class="stat"><strong>Level</strong> <span id="level" class="badge">1</span></div>
+      <div class="stat"><strong>Shots</strong> <span id="shots" class="badge">0</span></div>
+      <div class="toolbar">
+        <button id="btn-sound" class="btn">🔊 Sound</button>
+        <button id="restart" class="btn">↻ Restart</button>
+      </div>
+    </div>
+
+    <!-- Ad slot Top -->
+    <div class="ad-slot">[Ad Slot – Top 468×60 / Auto]</div>
+
+    <div class="board">
+      <canvas id="game" width="520" height="780" aria-label="Bubble Shooter"></canvas>
+      <div id="overlay" class="gameover" style="display:none">
+        <h2 style="margin:.2rem 0">Game Over</h2>
+        <p style="margin:0 0 .25rem">স্কোর: <b id="finalScore">0</b> · কয়েন: <b id="finalCoins">0</b></p>
+        <div class="toolbar">
+          <button class="btn" id="again">Play Again</button>
+          <button class="btn ghost" id="watchAd">🎁 Watch Ad +50 Coins</button>
+        </div>
+        <p class="tip">টিপ: দেয়ালে কোণ করে শট দিলে বড় কম্বো পাবেন!</p>
+      </div>
+    </div>
+
+    <!-- Ad slot Bottom / Reward Hook -->
+    <div class="ad-slot">[Reward Ad Hook – Call triggerRewardAd(() => grantCoins(50))]</div>
+
+    <p class="tip">ড্র্যাগ/ট্যাপ করে শ্যুট করুন। 3+ মিললে পপ। স্পেশাল বাবল: 🌈 রেইনবো, 💣 বোমা, 🔥 ফায়ারবল, ⚡ লাইٹنিং।</p>
+  </div>
+
+<script>
+(() => {
+  // ============ CONFIG ============
+  const cvs = document.getElementById('game');
+  const ctx = cvs.getContext('2d');
+  const R = 16;                 // bubble radius
+  const GRID = 2 * R;           // spacing
+  const COLS = Math.floor(cvs.width / GRID);
+  const ROWS = Math.floor((cvs.height - 160) / GRID);
+  const SHOOT_Y = cvs.height - 80;
+  const COLORS = ['#ff4d6d','#ffd166','#3ddc97','#4ea8de','#c77dff','#f07167','#70e000'];
+  const SHOTS_BEFORE_DROP = 6;
+  const SPECIAL_CHANCE = 0.17;  // chance that next shooter ball is special
+
+  // UI
+  const elScore = document.getElementById('score');
+  const elCoins = document.getElementById('coins');
+  const elCombo = document.getElementById('combo');
+  const elLevel = document.getElementById('level');
+  const elShots = document.getElementById('shots');
+  const overlay = document.getElementById('overlay');
+  const finalScore = document.getElementById('finalScore');
+  const finalCoins = document.getElementById('finalCoins');
+
+  document.getElementById('restart').onclick = init;
+  document.getElementById('again').onclick = init;
+  document.getElementById('btn-sound').onclick = ()=>{ soundOn=!soundOn; updateSoundBtn(); };
+  document.getElementById('watchAd').onclick = ()=> triggerRewardAd(()=> grantCoins(50));
+
+  // Responsive display-size fit
+  function fitCanvas(){
+    const maxW = Math.min(560, innerWidth*0.96);
+    const s = maxW / 520; cvs.style.width=(520*s)+'px'; cvs.style.height=(780*s)+'px';
+  } fitCanvas(); addEventListener('resize', fitCanvas);
+
+  // State
+  let grid, score, coins, shots, level, combo, comboTimer, state, current, nextBall, pointer, soundOn=true;
+  const STATE = { AIM:'aim', FLY:'fly', OVER:'over' };
+
+  // Simple sound (beeps) – lightweight and optional
+  let ac; function play(freq=600, dur=0.06){ if(!soundOn) return; try{ ac=ac||new (window.AudioContext||window.webkitAudioContext)(); const o=ac.createOscillator(); const g=ac.createGain(); o.frequency.value=freq; o.connect(g); g.connect(ac.destination); g.gain.value=0.08; o.start(); setTimeout(()=>{o.stop();}, dur*1000); }catch(e){} }
+  function updateSoundBtn(){ document.getElementById('btn-sound').textContent = soundOn? '🔊 Sound':'🔇 Sound'; }
+
+  // Daily reward (simple localStorage)
+  (function daily(){ const key='bs_daily'; const today=new Date().toISOString().slice(0,10); const last=localStorage.getItem(key); if(last!==today){ localStorage.setItem(key,today); setTimeout(()=>{ triggerRewardAd(()=> grantCoins(30)); }, 600);} })();
+
+  // Leaderboard/API hooks (replace URL with your backend)
+  async function submitScore(score, coins){
+    // Example POST – replace with your endpoint
+    // await fetch('https://your.api/leaderboard', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({score, coins, when: Date.now()})});
+  }
+
+  // Reward Ad hook (integrate SDK, then call cb when ad watched)
+  function triggerRewardAd(cb){
+    // TODO: integrate AppLovin/AdMob/Telegram Stars etc.
+    // Demo: instantly grant after small delay
+    const btn = document.getElementById('watchAd');
+    btn.disabled = true; btn.textContent = '⏳ Loading Ad...';
+    setTimeout(()=>{ btn.textContent='🎁 Watch Ad +50 Coins'; btn.disabled=false; cb&&cb(); }, 1200);
+  }
+
+  function grantCoins(n){ coins+=n; updateHUD(); play(420,0.08); }
+
+  function init(){
+    grid = Array.from({length: ROWS}, ()=> Array(COLS).fill(null));
+    score = 0; coins = 0; shots = 0; level = 1; combo = 1; comboTimer = 0; state=STATE.AIM; pointer={x:cvs.width/2, y:SHOOT_Y-100};
+
+    // Seed rows
+    const seedRows = 6; for(let r=0;r<seedRows;r++){ for(let c=0;c<COLS;c++){ if(Math.random()<.86) grid[r][c]={color:randColor(), type:'normal'}; }}
+
+    current = makeShooterBall();
+    nextBall = makeNextBall();
+    overlay.style.display='none';
+    updateSoundBtn();
+    tick(); updateHUD();
+  }
+
+  function randColor(){
+    // Use colors present on board if possible
+    const used = new Set(); for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(grid[r][c]) used.add(grid[r][c].color);
+    const pool = used.size? COLORS.filter(x=>used.has(x)) : COLORS; return pool[Math.floor(Math.random()*pool.length)];
+  }
+
+  function makeShooterBall(){
+    const special = Math.random() < SPECIAL_CHANCE;
+    const types = ['normal','rainbow','bomb','fire','lightning'];
+    const t = special ? types[1 + Math.floor(Math.random()*4)] : 'normal';
+    return { x:cvs.width/2, y:SHOOT_Y, vx:0, vy:0, color: t==='rainbow'? '#ffffff' : randColor(), type:t };
+  }
+  function makeNextBall(){
+    const special = Math.random() < SPECIAL_CHANCE;
+    const types = ['normal','rainbow','bomb','fire','lightning'];
+    const t = special ? types[1 + Math.floor(Math.random()*4)] : 'normal';
+    return {color: t==='rainbow'? '#ffffff' : randColor(), type:t};
+  }
+
+  // Input
+  function setPointer(e){ const r=cvs.getBoundingClientRect(); const px=(e.touches?e.touches[0].clientX:e.clientX)-r.left; const py=(e.touches?e.touches[0].clientY:e.clientY)-r.top; const sx=cvs.clientWidth/cvs.width, sy=cvs.clientHeight/cvs.height; pointer={x:px/sx, y:py/sy}; }
+  cvs.addEventListener('pointermove', e=>setPointer(e));
+  cvs.addEventListener('pointerdown', e=>{ setPointer(e); if(state===STATE.AIM) shoot(); });
+  cvs.addEventListener('touchend', e=>{ if(state===STATE.AIM) shoot(); }, {passive:true});
+
+  function shoot(){
+    let dx=pointer.x-current.x, dy=pointer.y-current.y; const L=Math.hypot(dx,dy)||1; dx/=L; dy/=L; if(dy>-0.25){ dy=-0.25; dx=dx>0?Math.sqrt(1-dy*dy):-Math.sqrt(1-dy*dy);} const speed=9; current.vx=dx*speed; current.vy=dy*speed; state=STATE.FLY; play(900,0.05);
+  }
+
+  // Helpers
+  function inBounds(r,c){ return r>=0&&r<ROWS&&c>=0&&c<COLS; }
+  function cellCenter(r,c){ return {x:c*GRID, y: 50 + r*GRID}; }
+  function nearestCell(x,y){ const c=Math.max(0,Math.min(COLS-1,Math.round(x/GRID))); const r=Math.max(0,Math.min(ROWS-1,Math.round((y-50)/GRID))); return {r,c}; }
+  const NEI=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+
+  function clusterFrom(r,c,color, type){
+    // rainbow matches any color; others use color
+    const match=(rr,cc)=>{ const cell=grid[rr][cc]; if(!cell) return false; if(type==='rainbow') return true; return cell.color===color; };
+    const q=[[r,c]], seen=new Set([r+','+c]);
+    while(q.length){ const [rr,cc]=q.pop(); for(const [dr,dc] of NEI){ const nr=rr+dr, nc=cc+dc; if(!inBounds(nr,nc)||!grid[nr][nc]) continue; if(!match(nr,nc)) continue; const k=nr+','+nc; if(!seen.has(k)){ seen.add(k); q.push([nr,nc]); } } }
+    return [...seen].map(s=>s.split(',').map(Number));
+  }
+
+  function removeCells(cells){ for(const [r,c] of cells) grid[r][c]=null; }
+  function addScore(v){ score+=Math.round(v*combo); elScore.textContent=score; }
+  function addCombo(){ combo=Math.min(10, combo+0.5); comboTimer=90; elCombo.textContent='x'+combo.toFixed(1).replace(/\.0$/,''); }
+  function resetCombo(){ combo=1; comboTimer=0; elCombo.textContent='x1'; }
+  function updateHUD(){ elScore.textContent=score; elCoins.textContent=coins; elShots.textContent=shots; elLevel.textContent=level; elCombo.textContent='x'+(combo.toFixed(1).replace(/\.0$/,'')); }
+
+  function dropUnattached(){ const seen=new Set(), q=[]; for(let c=0;c<COLS;c++){ if(grid[0][c]){ q.push([0,c]); seen.add('0,'+c);} }
+    while(q.length){ const [r,c]=q.pop(); for(const [dr,dc] of NEI){ const nr=r+dr, nc=c+dc; if(!inBounds(nr,nc)||!grid[nr][nc]) continue; const k=nr+','+nc; if(!seen.has(k)){ seen.add(k); q.push([nr,nc]); } } }
+    let dropped=0; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ if(grid[r][c] && !seen.has(r+','+c)){ grid[r][c]=null; dropped++; } }
+    if(dropped){ addScore(6*dropped); grantCoins(1*dropped); play(500,0.05); }
+  }
+
+  function pushRowDown(){ for(let r=ROWS-2;r>=0;r--) for(let c=0;c<COLS;c++) grid[r+1][c]=grid[r][c]; for(let c=0;c<COLS;c++) grid[0][c]=Math.random()<.85? {color:randColor(), type:'normal'} : null; level++; updateHUD(); }
+
+  // Special effects
+  function explodeAt(r,c, radius=1){ const cells=[]; for(let rr=r-radius; rr<=r+radius; rr++) for(let cc=c-radius; cc<=c+radius; cc++){ if(inBounds(rr,cc) && grid[rr][cc]) cells.push([rr,cc]); } removeCells(cells); addScore(10*cells.length); grantCoins(cells.length); addCombo(); dropUnattached(); }
+
+  function lightningAt(r,c){ const cells=[]; for(let rr=0; rr<ROWS; rr++) if(grid[rr][c]) cells.push([rr,c]); for(let cc=0; cc<COLS; cc++) if(grid[r][cc]) cells.push([r,cc]); removeCells(cells); addScore(8*cells.length); grantCoins(cells.length); addCombo(); dropUnattached(); }
+
+  function fireTraverse(x,y,vx,vy){ // goes through until first solid row, clearing touched
+    const cleared=[]; for(let step=0; step<1000; step++){ x+=vx; y+=vy; if(x<R||x>cvs.width-R) vx*=-1; if(y<50+R){ break; } for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const cell=grid[r][c]; if(!cell) continue; const ctr=cellCenter(r,c); const d=Math.hypot(x-ctr.x,y-ctr.y); if(d<2*R-0.5){ cleared.push([r,c]); } } }
+    // unique
+    const map=new Map(); for(const [r,c] of cleared) map.set(r+','+c,[r,c]); removeCells([...map.values()]); addScore(9*map.size); grantCoins(map.size); addCombo(); dropUnattached(); }
+
+  // Physics step when flying
+  function stepFlying(){ current.x+=current.vx; current.y+=current.vy;
+    if(current.x<R){ current.x=R; current.vx*=-1; }
+    if(current.x>cvs.width-R){ current.x=cvs.width-R; current.vx*=-1; }
+    if(current.y<50+R){ // hit ceiling -> snap
+      snapBall(0, Math.round(current.x/GRID)); return; }
+
+    // collision with bubbles
+    outer: for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const cell=grid[r][c]; if(!cell) continue; const ctr=cellCenter(r,c); const d=Math.hypot(current.x-ctr.x, current.y-ctr.y); if(d<2*R-0.5){
+          // specials
+          if(current.type==='bomb'){ explodeAt(r,c,1); afterShot(); return; }
+          if(current.type==='lightning'){ lightningAt(r,c); afterShot(); return; }
+          if(current.type==='fire'){ fireTraverse(current.x,current.y,current.vx,current.vy); afterShot(); return; }
+          snapBall(r,c); break outer; }
+    }
+
+    if(current.y>cvs.height-R-2){ gameOver(); }
+  }
+
+  function snapBall(rr,cc){ // place on nearest empty around
+    const around=[[0,0],[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1], [2,0],[0,2],[0,-2],[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[1,-2],[-1,-2]];
+    let bestR=rr,bestC=cc,bestD=1e9; for(const [dr,dc] of around){ const r=rr+dr, c=cc+dc; if(!inBounds(r,c)||grid[r][c]) continue; const ctr=cellCenter(r,c); const d=Math.hypot(ctr.x-current.x, ctr.y-current.y); if(d<bestD){ bestD=d; bestR=r; bestC=c; } }
+    if(grid[bestR]?.[bestC]==null){ grid[bestR][bestC]={color: current.type==='rainbow'? randColor(): current.color, type:'normal'}; // rainbow turns normal after placing
+      resolveMatch(bestR,bestC,current.color,current.type); afterShot(); }
+    else{ gameOver(); }
+  }
+
+  function resolveMatch(r,c,color,type){
+    if(type==='rainbow'){ // already placed as any color – expand using neighbors
+      const neighborColors=new Set(); for(const [dr,dc] of NEI){ const nr=r+dr, nc=c+dc; if(inBounds(nr,nc)&&grid[nr][nc]) neighborColors.add(grid[nr][nc].color); }
+      if(neighborColors.size===0) return; // no immediate match
+      let bestCells=[]; for(const col of neighborColors){ const cells=clusterFrom(r,c,col,'normal'); if(cells.length>bestCells.length) bestCells=cells; }
+      if(bestCells.length>=3){ removeCells(bestCells); addScore(10*bestCells.length); grantCoins(bestCells.length); addCombo(); dropUnattached(); play(700,0.06); }
+      return;
+    }
+    const cells=clusterFrom(r,c, grid[r][c].color, 'normal');
+    if(cells.length>=3){ removeCells(cells); addScore(10*cells.length); grantCoins(cells.length); addCombo(); dropUnattached(); play(700,0.06); }
+    else{ resetCombo(); }
+  }
+
+  function afterShot(){ shots++; updateHUD(); current={x:cvs.width/2, y:SHOOT_Y, vx:0, vy:0, color: nextBall.color, type: nextBall.type}; nextBall=makeNextBall(); state=STATE.AIM; if(shots % SHOTS_BEFORE_DROP===0) pushRowDown(); for(let c=0;c<COLS;c++){ if(grid[ROWS-2][c]){ gameOver(); break; } }
+  }
+
+  // Render
+  function lighten(hex, amt){ const c=parseInt(hex.slice(1),16); let r=(c>>16)&255,g=(c>>8)&255,b=c&255; r=Math.min(255,Math.round(r+(255-r)*amt)); g=Math.min(255,Math.round(g+(255-g)*amt)); b=Math.min(255,Math.round(b+(255-b)*amt)); return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1); }
+  function drawBubble(x,y,color,type,ghost=false){ const r=R-0.6; const grad=ctx.createRadialGradient(x-r/2,y-r/2,r*0.2,x,y,r); grad.addColorStop(0, lighten(color,0.45)); grad.addColorStop(1,color); ctx.fillStyle=grad; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(x-r*0.35,y-r*0.35,r*0.35,0,Math.PI*2); ctx.fillStyle='rgba(255,255,255,.35)'; ctx.fill(); if(ghost){ ctx.beginPath(); ctx.arc(x,y,r+1.5,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.lineWidth=2; ctx.stroke(); }
+    if(type&&type!=='normal'){ ctx.font='bold 16px system-ui,Segoe UI'; ctx.fillStyle='rgba(0,0,0,.7)'; const icon= type==='rainbow'?'🌈': type==='bomb'?'💣': type==='fire'?'🔥':'⚡'; ctx.fillText(icon,x-8,y+6); }
+  }
+  function drawAim(){ const dx=pointer.x-current.x, dy=pointer.y-current.y, L=Math.hypot(dx,dy)||1; const ux=dx/L, uy=dy/L; let x1=current.x,y1=current.y,x2=x1+ux*1200,y2=y1+uy*1200; if(uy<0){ const bounce=(ux>0)?cvs.width-R:R; const t=(bounce-x1)/(ux*1200); if(t>0&&t<1){ const by=y1+uy*1200*t; if(by>50+R && by<cvs.height-120){ const rx=ux>0?-Math.abs(ux):Math.abs(ux); x2=bounce+rx*1200*(1-t); y2=by+uy*1200*(1-t); } } } ctx.setLineDash([6,6]); ctx.lineWidth=2; ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.setLineDash([]); }
+
+  function render(){ ctx.clearRect(0,0,cvs.width,cvs.height); ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=2; ctx.strokeRect(1,49,cvs.width-2, ROWS*GRID+2);
+    for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const cell=grid[r][c]; if(!cell) continue; const {x,y}=cellCenter(r,c); drawBubble(x,y,cell.color,cell.type); }
+    // next ball
+    drawBubble(cvs.width-40, cvs.height-38, nextBall.color, nextBall.type);
+    ctx.font='12px system-ui,Segoe UI'; ctx.fillStyle='rgba(255,255,255,.7)'; ctx.fillText('NEXT', cvs.width-64, cvs.height-52);
+    // base
+    ctx.fillStyle='#0b1020'; ctx.beginPath(); ctx.arc(current.x,SHOOT_Y+20,45,Math.PI,0); ctx.fill();
+    drawBubble(current.x, current.y, current.color, current.type, state===STATE.AIM);
+    if(state===STATE.AIM) drawAim();
+  }
+
+  function tick(){ if(state===STATE.FLY) stepFlying(); if(comboTimer>0){ comboTimer--; if(comboTimer===0) resetCombo(); } render(); requestAnimationFrame(tick); }
+
+  function gameOver(){ state=STATE.OVER; overlay.style.display='flex'; finalScore.textContent=score; finalCoins.textContent=coins; submitScore(score, coins); play(200,0.12); }
+
+  // Start
+  init();
+})();
+</script>
+
+<!-- ============================
+     WHERE TO PLACE YOUR ADS & API
+     ============================
+     • Top & Bottom .ad-slot ডিভে আপনার অ্যাড স্ক্রিপ্ট বসান।
+     • triggerRewardAd(cb) ফাংশনে SDK কল করুন, দেখার পর cb() চালান।
+     • submitScore(score,coins) ফাংশনে আপনার সার্ভার/বট API URL দিন।
+     • Telegram WebApp হলে window.Telegram.WebApp.initDataUnsafe ব্যবহার করে user ID পাঠান।
+-->
+
+</body>
+</html>
