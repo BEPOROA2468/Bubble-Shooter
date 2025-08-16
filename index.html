@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bubble Shooter – HTML5</title>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body { display: grid; place-items: center; background: #0b1020; color: #e6f1ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; }
+    .wrap { text-align: center; }
+    canvas { display:block; box-shadow: 0 10px 30px rgba(0,0,0,.5); border-radius: 16px; background: #111935; }
+    .hint { margin-top: 12px; opacity: .7; font-size: 14px; }
+  </style>
+  <script src="bubble-shooter-example.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="viewport" width="628" height="628"></canvas>
+    <div class="hint">মাউস/টাচ দিয়ে টার্গেট করুন, ক্লিক/ট্যাপ করে বাবল শ্যুট করুন।</div>
+  </div>
+</body>
+</html>
