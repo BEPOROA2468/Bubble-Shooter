@@ -3,40 +3,61 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Bubble Shooter – Original</title>
+  <title>Bubble Shooter </title>
   <style>
     :root{
       --bg: #0f1226;
       --panel: #171a35;
       --text: #e7e9ff;
       --accent: #8da2ff;
+      --muted:#aab3ff;
+      --danger:#ff8da1;
+      --ok:#73e39b;
     }
     *{box-sizing:border-box}
     html,body{height:100%; margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; background:radial-gradient(1200px 600px at 50% -200px,#1b1e3e,#0f1226); color:var(--text)}
-    .wrap{max-width:900px; margin:0 auto; padding:16px;}
-    header{display:flex; align-items:center; justify-content:space-between; gap:12px;}
+
+    .wrap{max-width:980px; margin:0 auto; padding:16px;}
+    header{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
     h1{font-size:20px; margin:0; letter-spacing:.5px;}
     .panel{background:linear-gradient(180deg,#1a1f46,#13162f); border:1px solid #2a2f61; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.05);}
-    .hud{display:flex; align-items:center; justify-content:space-between; padding:10px 14px;}
-    .hud .left, .hud .right{display:flex; align-items:center; gap:12px}
+    .hud{display:flex; align-items:center; justify-content:space-between; padding:10px 14px; gap:12px; flex-wrap:wrap}
+    .hud .left, .hud .right{display:flex; align-items:center; gap:12px; flex-wrap:wrap}
     .badge{padding:6px 10px; background:#14183a; border:1px solid #2a2f61; border-radius:12px; font-weight:600}
     .btn{appearance:none; border:1px solid #2a2f61; background:#14183a; color:var(--text); padding:8px 12px; border-radius:12px; font-weight:700; cursor:pointer}
-    .btn:hover{filter:brightness(1.1)}
+    .btn:hover{filter:brightness(1.08)}
     canvas{display:block; width:100%; height:auto; border-bottom-left-radius:16px; border-bottom-right-radius:16px;}
-    .footer{display:flex; gap:12px; margin-top:14px; opacity:.9; font-size:12px}
+    .footer{display:flex; gap:12px; margin-top:14px; opacity:.9; font-size:12px; flex-wrap:wrap}
     .meter{height:8px; background:#121433; border:1px solid #2a2f61; border-radius:999px; overflow:hidden; width:150px}
     .meter > i{display:block; height:100%; width:0%; background:linear-gradient(90deg,#7aa2ff,#ad7aff)}
+
     /* Optional ad placeholders (replace with your ad code) */
     .ad{display:flex; align-items:center; justify-content:center; color:#aab3ff; border:1px dashed #4051a3; border-radius:12px; font-size:12px}
     .ad.top{height:60px; margin:12px 0}
     .ad.bottom{height:90px; margin:12px 0}
+
+    /* Diagnostics */
+    .diag{background:#0f1330; border:1px solid #334; border-radius:12px; padding:10px; font-size:12px; max-height:220px; overflow:auto}
+    .diag strong{color:var(--accent)}
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-weight:700}
+    .pill.ok{background:rgba(115,227,155,.12); border:1px solid rgba(115,227,155,.35); color:var(--ok)}
+    .pill.danger{background:rgba(255,141,161,.1); border:1px solid rgba(255,141,161,.35); color:var(--danger)}
+    .test-pass{color:var(--ok); font-weight:700}
+    .test-fail{color:var(--danger); font-weight:700}
+
+    /* Wallet/User card */
+    .usercard{display:flex; gap:10px; align-items:center}
+    .avatar{width:34px; height:34px; border-radius:50%; background:#223; display:inline-flex; align-items:center; justify-content:center; font-weight:800}
   </style>
+  <!-- Telegram WebApp SDK (safe to include; feature-detected below) -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
   <div class="wrap">
     <header>
       <h1>✨ Bubble Shooter – Original</h1>
       <div class="meter" aria-label="level progress"><i id="progressBar"></i></div>
+      <div id="walletPill" class="pill">Env: checking…</div>
     </header>
 
     <!-- Replace this block with your ad network code if needed -->
@@ -50,8 +71,18 @@
           <span class="badge">Row: <span id="rows">1</span></span>
         </div>
         <div class="right">
+          <div class="usercard">
+            <div class="avatar" id="avatar">🙂</div>
+            <div>
+              <div id="userName">Guest</div>
+              <div style="font-size:11px;color:var(--muted)">Balance: <span id="balance">0</span> 💎</div>
+            </div>
+          </div>
           <button class="btn" id="btnNew">New Game</button>
           <button class="btn" id="btnSound">Sound: On</button>
+          <button class="btn" id="btnSubmit">Submit Score</button>
+          <button class="btn" id="btnWithdraw">Withdraw</button>
+          <button class="btn" id="btnTests">Run Diagnostics</button>
         </div>
       </div>
       <canvas id="game" width="768" height="960" aria-label="Game canvas"></canvas>
@@ -62,7 +93,10 @@
 
     <div class="footer">
       <div>Mouse / Touch: aim & shoot • Space / Tap: fire • A / D: nudge aim</div>
+      <div id="diagSummary" class="pill">Diagnostics: idle</div>
     </div>
+
+    <div class="diag" id="diagBox" aria-live="polite" aria-atomic="true"></div>
   </div>
 
   <audio id="sndPop" preload="auto">
@@ -71,22 +105,123 @@
 
   <script>
   (()=>{
-    // --- Config -----------------------------------------------------------
-    const cfg = {
-      cols: 12,            // bubbles per row
-      rowsStart: 8,        // starting rows
-      bubbleR: 28,         // bubble radius in px
-      colors: ["#6EE7F9","#A7F3D0","#FDE68A","#FCA5A5","#C4B5FD","#93C5FD"],
-      shootSpeed: 9.5,     // px per frame
-      addRowEvery: 7,      // shots before new row drops
-      minCluster: 3,
-      aimAssist: true
+    // ========================= SAFETY & DIAGNOSTICS =========================
+    const diagBox = document.getElementById('diagBox');
+    const diagSummary = document.getElementById('diagSummary');
+    const walletPill = document.getElementById('walletPill');
+
+    function logDiag(msg){
+      const time = new Date().toLocaleTimeString();
+      diagBox.insertAdjacentHTML('afterbegin', `<div><strong>[${time}]</strong> ${escapeHtml(String(msg))}</div>`);
+    }
+    function setPill(el, ok, text){
+      el.className = `pill ${ok? 'ok':'danger'}`;
+      el.textContent = text;
+    }
+    function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c])); }
+
+    // Polyfill roundRect for broader canvas support
+    if(typeof CanvasRenderingContext2D !== 'undefined' && !CanvasRenderingContext2D.prototype.roundRect){
+      CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+        const rr = Math.min(r, w/2, h/2);
+        this.beginPath();
+        this.moveTo(x+rr,y);
+        this.arcTo(x+w,y,x+w,y+h,rr);
+        this.arcTo(x+w,y+h,x,y+h,rr);
+        this.arcTo(x,y+h,x,y,rr);
+        this.arcTo(x,y,x+w,y,rr);
+        this.closePath();
+      }
     }
 
-    // Derived cell geometry
-    const H = cfg.bubbleR * Math.sqrt(3); // hex vertical spacing
+    // Guard against external scripts/extensions throwing MetaMask errors
+    const BLOCKED_ERROR_PATTERNS = [/Failed to connect to MetaMask/i, /MetaMask/i];
+    window.addEventListener('error', (e)=>{
+      const msg = String(e.message||'');
+      if(BLOCKED_ERROR_PATTERNS.some(rx=>rx.test(msg))){
+        e.preventDefault();
+        logDiag('Suppressed error: '+msg);
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', (e)=>{
+      const msg = String((e.reason && e.reason.message) || e.reason || '');
+      if(BLOCKED_ERROR_PATTERNS.some(rx=>rx.test(msg))){
+        e.preventDefault();
+        logDiag('Suppressed promise rejection: '+msg);
+      }
+    }, true);
 
-    // --- State ------------------------------------------------------------
+    // ========================= TELEGRAM / USER / ECONOMY ====================
+    const avatar = document.getElementById('avatar');
+    const userNameEl = document.getElementById('userName');
+    const balanceEl = document.getElementById('balance');
+
+    const state = {
+      user: { id: 'guest', name: 'Guest', photo: '' },
+      balance: Number(localStorage.getItem('bs_balance')||0),
+      testMode: false,
+    };
+    syncBalance();
+
+    function syncBalance(){ balanceEl.textContent = String(state.balance); localStorage.setItem('bs_balance', String(state.balance)); }
+
+    function initTelegram(){
+      try{
+        const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+        if(!tg){ setPill(walletPill,false,'Env: Web'); state.testMode=true; logDiag('Telegram SDK not found → running in Web Test Mode.'); return null; }
+        tg.ready();
+        const u = tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user : null;
+        if(u){
+          state.user = { id: String(u.id), name: (u.first_name||'User') + (u.last_name? (' '+u.last_name):''), photo: u.photo_url||'' };
+          userNameEl.textContent = state.user.name;
+          setPill(walletPill,true,'Env: Telegram WebApp');
+          if(state.user.photo){ avatar.style.backgroundImage = `url(${state.user.photo})`; avatar.textContent=''; }
+          else{ avatar.textContent = (state.user.name[0]||'🙂'); }
+          logDiag('Telegram WebApp initialized for user id '+state.user.id);
+        } else {
+          setPill(walletPill,true,'Env: Telegram (no user)');
+          logDiag('Telegram SDK present but user info missing.');
+        }
+        // Expand to full height if inside Telegram
+        try{ tg.expand && tg.expand(); }catch{}
+        return tg;
+      }catch(err){
+        setPill(walletPill,false,'Env: error');
+        logDiag('Telegram init error: '+(err&&err.message||err));
+        return null;
+      }
+    }
+
+    const tgInstance = initTelegram();
+
+    // Fake backend for test/demo (replace with real endpoints)
+    async function apiCall(path, payload){
+      // In production, do: return fetch('https://your.api'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.json());
+      await new Promise(r=>setTimeout(r, 300));
+      logDiag('API '+path+' ← '+JSON.stringify(payload));
+      if(path==='/submit-score'){
+        // reward 1 gem per 100 score
+        const add = Math.floor((payload.score||0)/100);
+        state.balance += add; syncBalance();
+        return { ok:true, added:add, balance:state.balance };
+      }
+      if(path==='/withdraw'){
+        const min = 50; // minimum gems to withdraw (placeholder)
+        if(state.balance < min) return { ok:false, error:`Minimum ${min} gems required` };
+        state.balance -= min; syncBalance();
+        return { ok:true, paid:min };
+      }
+      return { ok:false, error:'Unknown endpoint' };
+    }
+
+    // ================================ GAME ==================================
+    const cfg = {
+      cols: 12, rowsStart: 8, bubbleR: 28,
+      colors: ["#6EE7F9","#A7F3D0","#FDE68A","#FCA5A5","#C4B5FD","#93C5FD"],
+      shootSpeed: 9.5, addRowEvery: 7, minCluster: 3, aimAssist: true
+    };
+    const H = cfg.bubbleR * Math.sqrt(3);
+
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('score');
@@ -95,16 +230,8 @@
     const progressBar = document.getElementById('progressBar');
     const sndPop = document.getElementById('sndPop');
 
-    let grid = [];   // 2D array of cells {x,y,color,active}
-    let shooter;     // {x,y,dx,dy,color,active}
-    let nextColor;
-    let score = 0;
-    let shots = 0;
-    let rows = 0;
-    let addRowCounter = 0;
-    let gameOver = false;
+    let grid = [], shooter, nextColor, score=0, shots=0, rows=0, addRowCounter=0, gameOver=false;
 
-    // --- Helpers ----------------------------------------------------------
     const rand = arr => arr[(Math.random()*arr.length)|0];
     function cellCenter(col,row){
       const offset = (row % 2 === 0) ? 0 : cfg.bubbleR;
@@ -112,295 +239,156 @@
       const y = cfg.bubbleR + row*H + 16 + 60; // 60 for HUD
       return {x,y};
     }
-    function gridSize(){ return {w: cfg.cols, h: grid.length}; }
-
     function newShooter(){
       const x = canvas.width/2; const y = canvas.height - 80;
       const angle = -Math.PI/2;
       shooter = {x,y,dx: Math.cos(angle)*cfg.shootSpeed, dy: Math.sin(angle)*cfg.shootSpeed, color: nextColor||rand(cfg.colors), active:false};
       nextColor = rand(cfg.colors);
     }
-
     function init(){
       score=0; shots=0; rows=cfg.rowsStart; addRowCounter=0; gameOver=false;
-      grid = [];
-      for(let r=0;r<cfg.rowsStart;r++) addRow(true);
-      nextColor = rand(cfg.colors);
-      newShooter();
-      updateHUD();
-      loop();
+      grid = []; for(let r=0;r<cfg.rowsStart;r++) addRow(true);
+      nextColor = rand(cfg.colors); newShooter(); updateHUD(); loop();
     }
-
     function updateHUD(){
-      scoreEl.textContent = score;
-      shotsEl.textContent = shots;
-      rowsEl.textContent = rows;
-      const p = Math.min(100, (addRowCounter/cfg.addRowEvery)*100);
-      progressBar.style.width = p+"%";
+      scoreEl.textContent = score; shotsEl.textContent = shots; rowsEl.textContent = rows;
+      const p = Math.min(100, (addRowCounter/cfg.addRowEvery)*100); progressBar.style.width = p+"%";
     }
-
     function addRow(initial=false){
       const newR = [];
       for(let c=0;c<cfg.cols;c++){
         const color = initial? rand(cfg.colors) : (Math.random()<.85? rand(cfg.colors) : null);
         newR.push({color, active: !!color});
       }
-      grid.unshift(newR);
-      rows = grid.length;
+      grid.unshift(newR); rows = grid.length;
     }
-
     function dropRowIfNeeded(){
-      if(++addRowCounter >= cfg.addRowEvery){
-        addRowCounter=0; addRow();
-        // push grid down visually by just adding a row at top; check game over
-        for(let r=0;r<grid.length;r++){
-          for(let c=0;c<cfg.cols;c++){
-            const {y} = cellCenter(c,r);
-            if(y + cfg.bubbleR >= canvas.height - 100){ gameOver=true; }
-          }
+      if(++addRowCounter >= cfg.addRowEvery){ addRowCounter=0; addRow();
+        for(let r=0;r<grid.length;r++) for(let c=0;c<cfg.cols;c++){
+          const {y} = cellCenter(c,r); if(y + cfg.bubbleR >= canvas.height - 100){ gameOver=true; }
         }
       }
     }
-
     function aimAt(mx,my){
-      const x = canvas.width/2, y = canvas.height - 80;
-      const ang = Math.atan2(my - y, mx - x);
-      shooter.dx = Math.cos(ang)*cfg.shootSpeed;
-      shooter.dy = Math.sin(ang)*cfg.shootSpeed;
+      const x = canvas.width/2, y = canvas.height - 80; const ang = Math.atan2(my - y, mx - x);
+      shooter.dx = Math.cos(ang)*cfg.shootSpeed; shooter.dy = Math.sin(ang)*cfg.shootSpeed;
     }
-
-    function shoot(){
-      if(gameOver) return;
-      if(!shooter.active){ shooter.active=true; shots++; dropRowIfNeeded(); updateHUD(); }
-    }
-
-    function step(){
-      if(shooter.active){
-        shooter.x += shooter.dx;
-        shooter.y += shooter.dy;
-        // wall bounce
-        if(shooter.x < cfg.bubbleR+16){ shooter.x = cfg.bubbleR+16; shooter.dx*=-1; }
-        if(shooter.x > canvas.width - cfg.bubbleR-16){ shooter.x = canvas.width - cfg.bubbleR-16; shooter.dx*=-1; }
-        // ceiling attach
-        if(shooter.y < cfg.bubbleR+16+60){ attachBubble(); return; }
-        // collide with grid
-        for(let r=0;r<grid.length;r++){
-          for(let c=0;c<cfg.cols;c++){
-            const cell = grid[r][c];
-            if(!cell.active) continue;
-            const {x,y} = cellCenter(c,r);
-            const dx = shooter.x - x; const dy = shooter.y - y;
-            const dist = Math.hypot(dx,dy);
-            if(dist < cfg.bubbleR*2 - 2){
-              attachBubble(); return;
-            }
-          }
-        }
+    function shoot(){ if(gameOver) return; if(!shooter.active){ shooter.active=true; shots++; dropRowIfNeeded(); updateHUD(); } }
+    function step(){ if(shooter.active){
+      shooter.x += shooter.dx; shooter.y += shooter.dy;
+      if(shooter.x < cfg.bubbleR+16){ shooter.x = cfg.bubbleR+16; shooter.dx*=-1; }
+      if(shooter.x > canvas.width - cfg.bubbleR-16){ shooter.x = canvas.width - cfg.bubbleR-16; shooter.dx*=-1; }
+      if(shooter.y < cfg.bubbleR+16+60){ attachBubble(); return; }
+      for(let r=0;r<grid.length;r++) for(let c=0;c<cfg.cols;c++){
+        const cell = grid[r][c]; if(!cell.active) continue; const {x,y} = cellCenter(c,r);
+        const dx = shooter.x - x, dy = shooter.y - y; const dist = Math.hypot(dx,dy);
+        if(dist < cfg.bubbleR*2 - 2){ attachBubble(); return; }
       }
-    }
-
+    }}
     function attachBubble(){
-      // find nearest grid position to stick
-      let best = {r:0,c:0, d: 1e9};
-      for(let r=0;r<grid.length+1;r++){
-        for(let c=0;c<cfg.cols;c++){
-          const {x,y} = cellCenter(c,r);
-          const d = Math.hypot(x - shooter.x, y - shooter.y);
-          if(d < best.d){ best={r,c,d}; }
-        }
+      let best = {r:0,c:0,d: 1e9};
+      for(let r=0;r<grid.length+1;r++) for(let c=0;c<cfg.cols;c++){
+        const {x,y} = cellCenter(c,r); const d = Math.hypot(x - shooter.x, y - shooter.y); if(d < best.d){ best={r,c,d}; }
       }
-      // ensure row exists
       while(best.r >= grid.length) grid.push(Array.from({length:cfg.cols},()=>({color:null,active:false})));
       const target = grid[best.r][best.c];
-      if(target.active){ // find nearby empty
-        outer: for(let rr=best.r; rr<best.r+2; rr++){
-          for(let cc=Math.max(0,best.c-1); cc<=Math.min(cfg.cols-1,best.c+1); cc++){
-            if(!grid[rr]) grid.push(Array.from({length:cfg.cols},()=>({color:null,active:false})));
-            if(!grid[rr][cc].active){ best.r=rr; best.c=cc; break outer; }
-          }
-        }
-      }
+      if(target.active){ outer: for(let rr=best.r; rr<best.r+2; rr++) for(let cc=Math.max(0,best.c-1); cc<=Math.min(cfg.cols-1,best.c+1); cc++){
+        if(!grid[rr]) grid.push(Array.from({length:cfg.cols},()=>({color:null,active:false})));
+        if(!grid[rr][cc].active){ best.r=rr; best.c=cc; break outer; }
+      }}
       grid[best.r][best.c] = {color: shooter.color, active:true};
-      shooter.active=false; sndPop.currentTime=0; sndPop.play().catch(()=>{});
-      resolveMatches(best.c,best.r);
-      newShooter();
-      updateHUD();
+      shooter.active=false; try{ sndPop.currentTime=0; sndPop.play(); }catch{}
+      resolveMatches(best.c,best.r); newShooter(); updateHUD();
     }
-
     function neighbors(c,r){
-      // axial-like neighbors for offset grid
       const even = (r%2===0);
       const list = [ [c-1,r], [c+1,r], [c,r-1], [c,r+1], [c+(even? -1:0), r-1], [c+(even? -1:0), r+1], [c+(even? 0:1), r-1], [c+(even? 0:1), r+1] ];
       return list.filter(([cc,rr])=> rr>=0 && rr<grid.length && cc>=0 && cc<cfg.cols );
     }
-
     function resolveMatches(c0,r0){
-      const color = grid[r0][c0].color;
-      // BFS cluster same color
-      const q=[[c0,r0]]; const seen=new Set([c0+","+r0]); const cluster=[];
-      while(q.length){
-        const [c,r]=q.shift(); cluster.push([c,r]);
-        for(const [cc,rr] of neighbors(c,r)){
-          const key=cc+","+rr;
-          if(!seen.has(key) && grid[rr][cc].active && grid[rr][cc].color===color){
-            seen.add(key); q.push([cc,rr]);
-          }
-        }
-      }
+      const color = grid[r0][c0].color; const q=[[c0,r0]]; const seen=new Set([c0+","+r0]); const cluster=[];
+      while(q.length){ const [c,r]=q.shift(); cluster.push([c,r]);
+        for(const [cc,rr] of neighbors(c,r)){ const key=cc+","+rr; if(!seen.has(key) && grid[rr][cc].active && grid[rr][cc].color===color){ seen.add(key); q.push([cc,rr]); }} }
       if(cluster.length>=cfg.minCluster){
-        // pop cluster
         for(const [c,r] of cluster){ grid[r][c]={color:null,active:false}; }
         score += cluster.length * 10;
-        // drop floating groups (not connected to top)
-        const connected = new Set();
-        const q2=[]; // start from top row actives
-        for(let c=0;c<cfg.cols;c++) if(grid[0]&&grid[0][c]?.active){ q2.push([c,0]); connected.add(c+",0"); }
-        while(q2.length){
-          const [c,r]=q2.shift();
-          for(const [cc,rr] of neighbors(c,r)){
-            const key=cc+","+rr; const cell=grid[rr][cc];
-            if(cell.active && !connected.has(key)){ connected.add(key); q2.push([cc,rr]); }
-          }
-        }
-        for(let r=0;r<grid.length;r++){
-          for(let c=0;c<cfg.cols;c++){
-            const key=c+","+r;
-            if(grid[r][c].active && !connected.has(key)){
-              grid[r][c]={color:null,active:false}; score+=5; // bonus for fall
-            }
-          }
+        const connected = new Set(); const q2=[]; for(let c=0;c<cfg.cols;c++) if(grid[0]&&grid[0][c]?.active){ q2.push([c,0]); connected.add(c+",0"); }
+        while(q2.length){ const [c,r]=q2.shift(); for(const [cc,rr] of neighbors(c,r)){ const key=cc+","+rr; const cell=grid[rr][cc]; if(cell.active && !connected.has(key)){ connected.add(key); q2.push([cc,rr]); }} }
+        for(let r=0;r<grid.length;r++) for(let c=0;c<cfg.cols;c++){
+          const key=c+","+r; if(grid[r][c].active && !connected.has(key)){ grid[r][c]={color:null,active:false}; score+=5; }
         }
       }
     }
-
     function draw(){
-      // clear
-      const grd = ctx.createLinearGradient(0,0,0,canvas.height);
-      grd.addColorStop(0,"#0f1336"); grd.addColorStop(1,"#0b0f26");
+      const grd = ctx.createLinearGradient(0,0,0,canvas.height); grd.addColorStop(0,"#0f1336"); grd.addColorStop(1,"#0b0f26");
       ctx.fillStyle = grd; ctx.fillRect(0,0,canvas.width,canvas.height);
-
-      // grid bubbles
-      for(let r=0;r<grid.length;r++){
-        for(let c=0;c<cfg.cols;c++){
-          const cell = grid[r][c];
-          if(!cell.active) continue;
-          const {x,y} = cellCenter(c,r);
-          bubble(x,y, cell.color);
-        }
-      }
-
-      // aim guide
-      if(!shooter.active && cfg.aimAssist){
-        ctx.globalAlpha=.25; ctx.lineWidth=2; ctx.setLineDash([8,8]);
-        ctx.beginPath();
-        ctx.moveTo(shooter.x, shooter.y);
-        let ax = shooter.x + shooter.dx*14, ay = shooter.y + shooter.dy*14;
-        // reflect preview until top
-        for(let i=0;i<24;i++){
-          if(ax < cfg.bubbleR+16 || ax > canvas.width - cfg.bubbleR-16){ shooter.dx*=-1; }
-          ax += shooter.dx*8; ay += shooter.dy*8; if(ay<100) break; // stop near top
-          ctx.lineTo(ax,ay);
-        }
-        ctx.strokeStyle="#ffffff"; ctx.stroke();
-        ctx.setLineDash([]); ctx.globalAlpha=1;
-      }
-
-      // shooter bubble and cannon
-      cannon();
-      bubble(shooter.x, shooter.y, shooter.color, true);
-
-      // next color preview
-      ctx.globalAlpha=.9; bubble(canvas.width-40, 84, nextColor);
-      ctx.font='12px system-ui'; ctx.fillStyle='#c9d1ff'; ctx.fillText('Next', canvas.width-58, 64);
-      ctx.globalAlpha=1;
-
-      if(gameOver){
-        ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(0,0,canvas.width,canvas.height);
-        ctx.fillStyle='#ffffff'; ctx.font='bold 42px system-ui'; ctx.textAlign='center';
-        ctx.fillText('Game Over', canvas.width/2, canvas.height/2-20);
-        ctx.font='18px system-ui';
-        ctx.fillText('Press N to start a new game', canvas.width/2, canvas.height/2+20);
-      }
+      for(let r=0;r<grid.length;r++) for(let c=0;c<cfg.cols;c++){ const cell = grid[r][c]; if(!cell.active) continue; const {x,y} = cellCenter(c,r); bubble(x,y, cell.color); }
+      if(!shooter.active && cfg.aimAssist){ ctx.globalAlpha=.25; ctx.lineWidth=2; ctx.setLineDash([8,8]); ctx.beginPath(); ctx.moveTo(shooter.x, shooter.y); let ax = shooter.x + shooter.dx*14, ay = shooter.y + shooter.dy*14; for(let i=0;i<24;i++){ if(ax < cfg.bubbleR+16 || ax > canvas.width - cfg.bubbleR-16){ shooter.dx*=-1; } ax += shooter.dx*8; ay += shooter.dy*8; if(ay<100) break; ctx.lineTo(ax,ay);} ctx.strokeStyle="#ffffff"; ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1; }
+      cannon(); bubble(shooter.x, shooter.y, shooter.color, true); ctx.globalAlpha=.9; bubble(canvas.width-40, 84, nextColor); ctx.font='12px system-ui'; ctx.fillStyle='#c9d1ff'; ctx.fillText('Next', canvas.width-58, 64); ctx.globalAlpha=1;
+      if(gameOver){ ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#ffffff'; ctx.font='bold 42px system-ui'; ctx.textAlign='center'; ctx.fillText('Game Over', canvas.width/2, canvas.height/2-20); ctx.font='18px system-ui'; ctx.fillText('Press N to start a new game', canvas.width/2, canvas.height/2+20); }
     }
-
     function bubble(x,y,color,shine=false){
-      const r = cfg.bubbleR;
-      const g = ctx.createRadialGradient(x-r/2,y-r/2, r*.2, x,y, r);
-      g.addColorStop(0, '#ffffff');
-      g.addColorStop(0.01, color);
-      g.addColorStop(1, shade(color,-0.35));
-      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
-      ctx.fillStyle=g; ctx.fill();
-      ctx.strokeStyle='rgba(255,255,255,.1)'; ctx.lineWidth=1; ctx.stroke();
-      if(shine){ ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(x-r/3,y-r/3,r/4,0,Math.PI*2); ctx.fill(); }
+      const r = cfg.bubbleR; const g = ctx.createRadialGradient(x-r/2,y-r/2, r*.2, x,y, r);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.01, color); g.addColorStop(1, shade(color,-0.35));
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle=g; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,.1)'; ctx.lineWidth=1; ctx.stroke(); if(shine){ ctx.fillStyle='rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(x-r/3,y-r/3,r/4,0,Math.PI*2); ctx.fill(); }
     }
+    function shade(hex,lum){ hex = String(hex).replace(/[^0-9a-f]/gi,''); if(hex.length<6){hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];} let rgb="#", c; for(let i=0;i<3;i++){ c=parseInt(hex.substr(i*2,2),16); c=Math.round(Math.min(Math.max(0,c+(c*lum)),255)).toString(16); rgb+= ("00"+c).substr(c.length); } return rgb; }
+    function cannon(){ const baseY = canvas.height-60; const cx=canvas.width/2; ctx.save(); ctx.fillStyle="#0a0e2a"; ctx.beginPath(); ctx.roundRect(cx-70,baseY,140,28,14); ctx.fill(); const ang = Math.atan2(shooter.dy, shooter.dx); ctx.translate(cx, baseY); ctx.rotate(ang); ctx.fillStyle="#11173d"; ctx.fillRect(0,-10,80,20); ctx.fillStyle="#2e3a8c"; ctx.fillRect(60,-10,20,20); ctx.restore(); }
 
-    function shade(hex,lum){ // simple hex shade
-      hex = String(hex).replace(/[^0-9a-f]/gi,'');
-      if(hex.length<6){hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];}
-      let rgb="#", c; for(let i=0;i<3;i++){ c=parseInt(hex.substr(i*2,2),16); c=Math.round(Math.min(Math.max(0,c+(c*lum)),255)).toString(16); rgb+= ("00"+c).substr(c.length); }
-      return rgb;
-    }
-
-    function cannon(){
-      const baseY = canvas.height-60; const cx=canvas.width/2;
-      ctx.save();
-      // base
-      ctx.fillStyle="#0a0e2a"; ctx.beginPath(); ctx.roundRect(cx-70,baseY,140,28,14); ctx.fill();
-      // barrel
-      const ang = Math.atan2(shooter.dy, shooter.dx);
-      ctx.translate(cx, baseY);
-      ctx.rotate(ang);
-      ctx.fillStyle="#11173d"; ctx.fillRect(0,-10,80,20);
-      ctx.fillStyle="#2e3a8c"; ctx.fillRect(60,-10,20,20);
-      ctx.restore();
-    }
-
-    // --- Events -----------------------------------------------------------
-    canvas.addEventListener('mousemove', e=>{
-      const rect = canvas.getBoundingClientRect();
-      aimAt(e.clientX-rect.left, e.clientY-rect.top);
-    });
-    canvas.addEventListener('touchmove', e=>{
-      const t = e.touches[0]; const rect = canvas.getBoundingClientRect();
-      aimAt(t.clientX-rect.left, t.clientY-rect.top);
-    }, {passive:true});
-    canvas.addEventListener('click', shoot);
-    canvas.addEventListener('touchend', shoot);
-
-    window.addEventListener('keydown', e=>{
-      if(e.code==='Space'){ e.preventDefault(); shoot(); }
-      if(e.key==='a' || e.key==='A'){ shooter.dx = Math.cos(Math.atan2(shooter.dy,shooter.dx)-0.07)*cfg.shootSpeed; shooter.dy = Math.sin(Math.atan2(shooter.dy,shooter.dx)-0.07)*cfg.shootSpeed; }
-      if(e.key==='d' || e.key==='D'){ shooter.dx = Math.cos(Math.atan2(shooter.dy,shooter.dx)+0.07)*cfg.shootSpeed; shooter.dy = Math.sin(Math.atan2(shooter.dy,shooter.dx)+0.07)*cfg.shootSpeed; }
-      if(e.key==='n' || e.key==='N'){ init(); }
-    });
-
-    // Sound toggle
-    document.getElementById('btnSound').addEventListener('click', e=>{
-      const el = e.currentTarget; const on = el.textContent.includes('On');
-      el.textContent = 'Sound: ' + (on? 'Off' : 'On');
-      sndPop.muted = on;
-    });
+    // Events
+    canvas.addEventListener('mousemove', e=>{ const rect = canvas.getBoundingClientRect(); aimAt(e.clientX-rect.left, e.clientY-rect.top); });
+    canvas.addEventListener('touchmove', e=>{ const t = e.touches[0]; const rect = canvas.getBoundingClientRect(); aimAt(t.clientX-rect.left, t.clientY-rect.top); }, {passive:true});
+    canvas.addEventListener('click', shoot); canvas.addEventListener('touchend', shoot);
+    window.addEventListener('keydown', e=>{ if(e.code==='Space'){ e.preventDefault(); shoot(); } if(e.key==='a' || e.key==='A'){ const ang=Math.atan2(shooter.dy,shooter.dx)-0.07; shooter.dx = Math.cos(ang)*cfg.shootSpeed; shooter.dy = Math.sin(ang)*cfg.shootSpeed; } if(e.key==='d' || e.key==='D'){ const ang=Math.atan2(shooter.dy,shooter.dx)+0.07; shooter.dx = Math.cos(ang)*cfg.shootSpeed; shooter.dy = Math.sin(ang)*cfg.shootSpeed; } if(e.key==='n' || e.key==='N'){ init(); } });
+    document.getElementById('btnSound').addEventListener('click', e=>{ const el = e.currentTarget; const on = el.textContent.includes('On'); el.textContent = 'Sound: ' + (on? 'Off' : 'On'); sndPop.muted = on; });
     document.getElementById('btnNew').addEventListener('click', init);
 
-    // --- Loop -------------------------------------------------------------
-    function loop(){
-      step(); draw(); requestAnimationFrame(loop);
-    }
+    // Submit score → adds gems via API; shows Telegram MainButton if available
+    const btnSubmit = document.getElementById('btnSubmit');
+    btnSubmit.addEventListener('click', async ()=>{
+      const payload = { userId: state.user.id, score, shots, ts: Date.now() };
+      const res = await apiCall('/submit-score', payload);
+      if(res.ok){ logDiag(`Score submitted. +${res.added} 💎 → balance ${res.balance}`); if(tgInstance && tgInstance.HapticFeedback){ try{ tgInstance.HapticFeedback.impactOccurred('medium'); }catch{} }
+      } else { logDiag('Submit failed: '+res.error); }
+    });
 
-    // Resize handling – keep canvas crisp while responsive
-    function handleResize(){
-      const dpr = Math.min(2, window.devicePixelRatio||1);
-      const w = Math.min(768, document.querySelector('.panel').clientWidth);
-      const h = Math.min(960, Math.round(w*1.25));
-      canvas.style.width = w+'px'; canvas.style.height = h+'px';
-      canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
-      ctx.setTransform(dpr,0,0,dpr,0,0);
-    }
-    window.addEventListener('resize', handleResize); handleResize();
+    // Withdraw (placeholder)
+    document.getElementById('btnWithdraw').addEventListener('click', async ()=>{
+      const res = await apiCall('/withdraw', { userId: state.user.id });
+      if(res.ok){ logDiag(`Withdraw processed: ${res.paid} 💎 deducted`); if(tgInstance){ try{ tgInstance.showAlert('Withdraw request sent!'); }catch{} }
+      } else { logDiag('Withdraw failed: '+res.error); if(tgInstance){ try{ tgInstance.showAlert(res.error); }catch{} } }
+    });
 
-    // Kickoff
-    init();
+    // Loop & resize
+    function loop(){ step(); draw(); requestAnimationFrame(loop); }
+    function handleResize(){ const dpr = Math.min(2, window.devicePixelRatio||1); const w = Math.min(768, document.querySelector('.panel').clientWidth); const h = Math.min(960, Math.round(w*1.25)); canvas.style.width = w+'px'; canvas.style.height = h+'px'; canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr); ctx.setTransform(dpr,0,0,dpr,0,0); }
+    window.addEventListener('resize', handleResize); handleResize(); init();
+
+    // =============================== TESTS ==================================
+    // Minimal test runner outputs to diag box
+    const tests = [];
+    const addTest = (name, fn) => tests.push({name, fn});
+
+    addTest('SDK presence: window.Telegram defined or Web Test Mode', ()=>{
+      const has = !!(window.Telegram && window.Telegram.WebApp); return has || state.testMode;
+    });
+    addTest('Score submit returns ok and updates balance', async ()=>{
+      const before = state.balance; const res = await apiCall('/submit-score',{userId:state.user.id, score:250}); return res.ok && res.added===2 && res.balance===before+2;
+    });
+    addTest('Withdraw enforces minimum', async ()=>{
+      // Ensure small balance
+      state.balance = 0; syncBalance(); const res = await apiCall('/withdraw',{userId:state.user.id}); return !res.ok && /Minimum/.test(res.error||'');
+    });
+
+    document.getElementById('btnTests').addEventListener('click', async ()=>{
+      diagBox.innerHTML=''; let pass=0, total=tests.length;
+      for(const t of tests){
+        try{ const r = await t.fn(); if(r){ pass++; logDiag(`<span class='test-pass'>PASS</span> — ${t.name}`); } else { logDiag(`<span class='test-fail'>FAIL</span> — ${t.name}`); } }
+        catch(err){ logDiag(`<span class='test-fail'>ERROR</span> — ${t.name}: ${(err&&err.message)||err}`); }
+      }
+      setPill(diagSummary, pass===total, `Diagnostics: ${pass}/${total} passed`);
+    });
+
   })();
   </script>
 </body>
